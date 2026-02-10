@@ -1,0 +1,307 @@
+AWS CLI
+**********************************************************
+List all security groups in a region
+***********************************************************
+$ aws ec2 describe-security-groups \
+  --region us-east-1 \
+  --query "SecurityGroups[].{GroupId:GroupId,Name:GroupName,VpcId:VpcId}" \
+  --output table
+------------------------------------------------------------------------------
+|                           DescribeSecurityGroups                           |
++----------------------+---------------------------+-------------------------+
+|        GroupId       |           Name            |          VpcId          |
++----------------------+---------------------------+-------------------------+
+|  sg-0135a294670fbee13|  sg.rds.lab1a.01.24.2026  |  vpc-0bdade2ebaaf532b7  |
+|  sg-0fc3c6532d891b654|  sg.ec2-lab1a-01.24.2026  |  vpc-0bdade2ebaaf532b7  |
+|  sg-042dcaee921ae3849|  default                  |  vpc-0bdade2ebaaf532b7  |
++----------------------+---------------------------+-------------------------+
+**************************************************************
+Inspect a specific security group (inbound & outbound rules)
+***************************************************************
+$ aws ec2 describe-security-groups   --group-ids sg-0135a294670fbee13   --region us-east-1   --output json
+{
+    "SecurityGroups": [
+        {
+            "GroupId": "sg-0135a294670fbee13",
+            "IpPermissionsEgress": [
+                {
+                    "IpProtocol": "-1",
+                    "UserIdGroupPairs": [],
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                }
+            ],
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "sg.rds.lab1a.01.24.2026"
+                }
+            ],
+            "VpcId": "vpc-0bdade2ebaaf532b7",
+            "SecurityGroupArn": "arn:aws:ec2:us-east-1:985539756079:security-group/sg-0135a294670fbee13",
+            "OwnerId": "985539756079",
+            "GroupName": "sg.rds.lab1a.01.24.2026",
+            "Description": "sg for rds 3306",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 3306,
+                    "ToPort": 3306,
+                    "UserIdGroupPairs": [
+                        {
+                            "UserId": "985539756079",
+                            "GroupId": "sg-0fc3c6532d891b654"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                }
+            ]
+        }
+    ]
+}
+************************************************************************
+Verify which resources are using the security group EC2 instances
+************************************************************************
+$ aws ec2 describe-instances \
+  --filters Name=instance.group-id,Values=sg-0fc3c6532d891b654 \
+  --region us-east-1 \
+  --query "Reservations[].Instances[].InstanceId" \
+  --output table
+-------------------------
+|   DescribeInstances   |
++-----------------------+
+|  i-0afe54e025b455ec1  |
++-----------------------+
+***********************************************************************
+RDS instances
+***********************************************************************
+$ aws rds describe-db-instances \
+  --region us-east-1 \
+  --query "DBInstances[?contains(VpcSecurityGroups[].VpcSecurityGroupId, 'sg-0135a294670fbee13')].DBInstanceIdentifier" \
+  --output table
+---------------------
+|DescribeDBInstances|
++-------------------+
+|  database1        |
+|  database-1       |
++-------------------+
+*********************************************************************
+List all RDS instances
+*********************************************************************
+$ aws rds describe-db-instances \
+  --region us-east-1 \
+  --query "DBInstances[].{DB:DBInstanceIdentifier,Engine:Engine,Public:PubliclyAccessible,Vpc:DBSubnetGroup.VpcId}" \
+  --output table
+-------------------------------------------------------------
+|                    DescribeDBInstances                    |
++------------+---------+---------+--------------------------+
+|     DB     | Engine  | Public  |           Vpc            |
++------------+---------+---------+--------------------------+
+|  database1 |  mysql  |  False  |  vpc-0bdade2ebaaf532b7   |
+|  database-1|  mysql  |  False  |  vpc-0bdade2ebaaf532b7   |
++------------+---------+---------+--------------------------+
+*********************************************************************
+Inspect a specific RDS instance
+*********************************************************************
+
+Critical checks "PubliclyAccessible": false Correct VPC Correct subnet group Correct security groups
+*********************************************************************
+Verify RDS security groups explicitly
+*********************************************************************
+$ aws rds describe-db-instances \
+  --db-instance-identifier database1 \
+  --region us-east-1 \
+  --query "DBInstances[].VpcSecurityGroups[].VpcSecurityGroupId" \
+  --output table
+--------------------------
+|   DescribeDBInstances  |
++------------------------+
+|  sg-0135a294670fbee13  |
++------------------------+
+********************************************************************
+Verify RDS subnet placement
+********************************************************************
+$ aws rds describe-db-subnet-groups \
+  --region us-east-1 \
+  --query "DBSubnetGroups[].{Name:DBSubnetGroupName,Vpc:VpcId,Subnets:Subnets[].SubnetIdentifier}" \
+  --output table
+------------------------------------------------------------
+|                  DescribeDBSubnetGroups                  |
++--------------------------------+-------------------------+
+|              Name              |           Vpc           |
++--------------------------------+-------------------------+
+|  default-vpc-0bdade2ebaaf532b7 |  vpc-0bdade2ebaaf532b7  |
++--------------------------------+-------------------------+
+||                         Subnets                        ||
+|+--------------------------------------------------------+|
+||  subnet-0abb64160e7d417a1                              ||
+||  subnet-048b76e3065a423b4                              ||
+||  subnet-03842e4ef1c87a7a6                              ||
+||  subnet-04bb916e5688403ac                              ||
+||  subnet-050320159d8096c92                              ||
+||  subnet-0f8972714aff24127                              ||
+|+--------------------------------------------------------+|
+********************************************************************
+Verify Network Exposure (Fast Sanity Checks) Check if RDS is publicly reachable (quick flag)
+********************************************************************
+$ aws rds describe-db-instances \
+  --db-instance-identifier database1 \
+  --region us-east-1 \
+  --query "DBInstances[].PubliclyAccessible" \
+  --output text
+False
+********************************************************************
+Verify Secrets Manager (Existence, Metadata, Access)
+$ aws secretsmanager list-secrets \
+  --region us-east-1 \
+  --query "SecretList[].{Name:Name,ARN:ARN,Rotation:RotationEnabled}" \
+  --output table
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+|                                                                              ListSecrets                                                                             |
++----------------------------------------------------------------------------------------------------------+-----------------------------------------------+-----------+
+|                                                    ARN                                                   |                     Name                      | Rotation  |
++----------------------------------------------------------------------------------------------------------+-----------------------------------------------+-----------+
+|  arn:aws:secretsmanager:us-east-1:985539756079:secret:rds!db-a4d1f581-68b0-49a1-9ca8-db438d0b9b65-7ar7G3 |  rds!db-a4d1f581-68b0-49a1-9ca8-db438d0b9b65  |  True     |
+|  arn:aws:secretsmanager:us-east-1:985539756079:secret:lab/rds/mysql-fZLel2                               |  lab/rds/mysql                                |  None     |
++----------------------------------------------------------------------------------------------------------+-----------------------------------------------+-----------+
+*******************************************************************
+Describe a specific secret (NO value exposure)
+*******************************************************************
+$ aws secretsmanager describe-secret \
+  --secret-id lab/rds/mysql \
+  --region us-east-1 \
+  --output json
+{
+    "ARN": "arn:aws:secretsmanager:us-east-1:985539756079:secret:lab/rds/mysql-fZLel2",
+    "Name": "lab/rds/mysql",
+    "LastChangedDate": "2026-01-29T00:08:46.100000-05:00",
+    "LastAccessedDate": "2026-02-01T19:00:00-05:00",
+    "Tags": [],
+    "VersionIdsToStages": {
+        "4f750313-b945-4a8d-853e-155855ca010d": [
+            "AWSCURRENT"
+        ],
+        "a20e56bb-ee40-41ea-8824-12e77ec49d94": [
+            "AWSPREVIOUS"
+        ]
+    },
+    "CreatedDate": "2026-01-24T14:54:13.077000-05:00"
+}
+*****************************************************************
+Verify which IAM principals can access the secret
+*****************************************************************
+$ aws secretsmanager get-resource-policy \
+  --secret-id arn:aws:secretsmanager:us-east-1:985539756079:secret:lab/rds/mysql-fZLel2 \
+  --region us-east-1 \
+  --output json
+{
+    "ARN": "arn:aws:secretsmanager:us-east-1:985539756079:secret:lab/rds/mysql-fZLel2",
+    "Name": "lab/rds/mysql"
+}
+******************************************************************
+Verify IAM Role Attached to an EC2 Instance Step 1: Identify the EC2 instance
+******************************************************************
+$ aws ec2 describe-instances \
+  --region us-east-1 \
+  --query "Reservations[].Instances[].InstanceId" \
+  --output text
+i-0afe54e025b455ec1
+******************************************************************
+Step 2: Check the IAM role attached to the instance
+******************************************************************
+$ aws ec2 describe-instances \
+  --instance-ids i-0afe54e025b455ec1 \
+  --region us-east-1 \
+  --query "Reservations[].Instances[].IamInstanceProfile.Arn" \
+  --output text
+arn:aws:iam::985539756079:instance-profile/IAM-lab1a-role
+******************************************************************
+Verify EC2 → RDS access path (security-group–to–security-group)
+******************************************************************
+$ aws ec2 describe-security-groups \
+  --group-ids sg-0fc3c6532d891b654 \
+  --region us-east-1 \
+  --query "SecurityGroups[].IpPermissions"
+[
+    [
+        {
+            "IpProtocol": "tcp",
+            "FromPort": 80,
+            "ToPort": 80,
+            "UserIdGroupPairs": [],
+            "IpRanges": [
+                {
+                    "CidrIp": "0.0.0.0/0"
+                }
+            ],
+            "Ipv6Ranges": [],
+            "PrefixListIds": []
+        },
+        {
+            "IpProtocol": "tcp",
+            "FromPort": 22,
+            "ToPort": 22,
+            "UserIdGroupPairs": [],
+            "IpRanges": [
+                {
+                    "CidrIp": "0.0.0.0/0"
+                }
+            ],
+            "Ipv6Ranges": [],
+            "PrefixListIds": []
+        }
+    ]
+]
+*************************************************************
+Verify That EC2 Can Actually Read the Secret (From the Instance) From inside the EC2 instance:
+*************************************************************
+aws sts get-caller-identity
+THE OUTPUT HAS TOO MUCH PERSONAL INFORMATION - SORRY
+*************************************************************
+Then test access:
+*************************************************************
+$ aws secretsmanager describe-secret \
+  --secret-id arn:aws:secretsmanager:us-east-1:985539756079:secret:lab/rds/mysql-fZLel2 \
+  --region us-east-1
+{
+    "ARN": "arn:aws:secretsmanager:us-east-1:985539756079:secret:lab/rds/mysql-fZLel2",
+    "Name": "lab/rds/mysql",
+    "LastChangedDate": "2026-01-29T00:08:46.100000-05:00",
+    "LastAccessedDate": "2026-02-01T19:00:00-05:00",
+    "Tags": [],
+    "VersionIdsToStages": {
+        "4f750313-b945-4a8d-853e-155855ca010d": [
+            "AWSCURRENT"
+        ],
+        "a20e56bb-ee40-41ea-8824-12e77ec49d94": [
+            "AWSPREVIOUS"
+        ]
+    },
+    "CreatedDate": "2026-01-24T14:54:13.077000-05:00"
+}
+*****************************************************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
